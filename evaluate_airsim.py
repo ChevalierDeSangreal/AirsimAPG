@@ -1,4 +1,4 @@
-from neural_control.environments.drone_env import QuadRotorEnvBase
+from drone_env import QuadRotorEnvBase
 import airsim
 import time
 import numpy as np
@@ -34,17 +34,17 @@ def quaternion_to_euler(q):
     Input: np.array[w, x, y, z]
     Output: np.array[roll_x, pitch_y, yaw_z]
     """
-    t0 = +2.0 * (q.w_val * q.x_val + q.y_val * q.z_val)
-    t1 = +1.0 - 2.0 * (q.x_val * q.x_val + q.y_val * q.y_val)
+    t0 = +2.0 * (q[0] * q[1] + q[2] * q[3])
+    t1 = +1.0 - 2.0 * (q[1] * q[1] + q[2] * q[2])
     roll_x = np.arctan2(t0, t1)
 
-    t2 = +2.0 * (q.w_val * q.y_val - q.z_val * q.x_val)
+    t2 = +2.0 * (q[0] * q[2] - q[3] * q[1])
     t2 = +1.0 if t2 > +1.0 else t2
     t2 = -1.0 if t2 < -1.0 else t2
     pitch_y = np.arcsin(t2)
 
-    t3 = +2.0 * (q.w_val * q.z_val + q.x_val * q.y_val)
-    t4 = +1.0 - 2.0 * (q.y_val * q.y_val + q.z_val * q.z_val)
+    t3 = +2.0 * (q[0] * q[3] + q[1] * q[2])
+    t4 = +1.0 - 2.0 * (q[2] * q[2] + q[3] * q[3])
     yaw_z = np.arctan2(t3, t4)
 
     return np.array([roll_x, pitch_y, yaw_z])
@@ -146,13 +146,13 @@ class AirsimWrapper(QuadRotorEnvBase):
 		airsim_state = KinematicsState()
 
 		# set position
-		airsim_state.position = Vector3r(*np_state[:3])
+		airsim_state.position = Vector3r(*map(float, np_state[:3]))
 		# set linear velocity
-		airsim_state.linear_velocity = Vector3r(*np_state[6:9])
+		airsim_state.linear_velocity = Vector3r(*map(float, np_state[6:9]))
 		# set orientation
-		airsim_state.orientation = Quaternionr(*euler_to_quaternion(np_state[3:6]))
+		airsim_state.orientation = Quaternionr(*map(float, euler_to_quaternion(np_state[3:6])))
 		# set angular velocity (body rates)
-		airsim_state.angular_velocity = Vector3r(*np_state[9:])
+		airsim_state.angular_velocity = Vector3r(*map(float, np_state[9:]))
 
 		return airsim_state
 	
@@ -161,9 +161,10 @@ class AirsimWrapper(QuadRotorEnvBase):
 		set state to given position and zero velocity
 		"""
 		super().zero_reset(position_x, position_y, position_z) # reset the state
-		obs = self.env.zero_reset(position_x, position_y, position_z) # reset the position in airsim 
+		# obs = self.env.zero_reset(position_x, position_y, position_z) # reset the position in airsim 
 		airsim_state = self.apg2airsim_state(self._state.as_np)
-		self.client.simSetKinematics(airsim_state)
+		print("Airsim state: ", airsim_state)
+		self.client.simSetKinematics(airsim_state, ignore_collision=True)
 		return self._state.as_np
 	
 	def step(self, action, thresh=.8, dynamics="airsim"):
@@ -174,6 +175,9 @@ class AirsimWrapper(QuadRotorEnvBase):
 		# convert action from model to airsim form
 		action = self.apg2airsim_action(action)
 		# take action in airsim, and wait until it's done
+		
+		action = [0, 0, 0, 0.7]
+		print("Taking action: ", action)
 		self.client.moveByRollPitchYawrateThrottleAsync(*action, duration=self.dt).join()
 		# get state and convert to apg form
 		airsim_state = self.client.simGetGroundTruthKinematics(vehicle_name = '')
@@ -182,7 +186,18 @@ class AirsimWrapper(QuadRotorEnvBase):
 		# set own state (current_np_state)
 		self._state.from_np(np_state)
 		stable = np.all(np.absolute(np_state[3:5]) < thresh)
-		return np_state, stable
+		return np_state, stable                                                                                                     
+
+
+if __name__ == "__main__":
+	aw = AirsimWrapper(10)
+	action = np.array([0.5, 0.5, 0.5, 0.5])
+	num = 0
+	while 1:
+		aw.step(action)
+		print(aw.zero_reset())
+		num += 1
+		print("Now is the loop: ", num)
 
 	
 	

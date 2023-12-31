@@ -17,6 +17,7 @@ from neural_control.controllers.mpc import MPC
 from neural_control.dynamics.quad_dynamics_flightmare import FlightmareDynamics
 from neural_control.dynamics.quad_dynamics_simple import SimpleDynamics
 from evaluate_base import run_mpc_analysis, load_model_params, average_action
+from evaluate_airsim import AirsimWrapper
 try:
     from neural_control.flightmare import FlightmareWrapper
 except ModuleNotFoundError:
@@ -363,20 +364,34 @@ if __name__ == "__main__":
     parser.add_argument(
         "-u", "--unity", action='store_true', help="unity rendering"
     )
-    parser.add_argument(
-        "-f", "--flightmare", action='store_true', help="Flightmare"
-    )
+    # Be moved to dynamic
+    # parser.add_argument(
+    #     "-f", "--flightmare", action='store_true', help="Flightmare"
+    # )
     parser.add_argument(
         "-s", "--save_traj", action="store_true", help="save the trajectory"
     )
+    parser.add_argument(
+        "-d",
+        "--dynamic",
+        type=str,
+        default="airsim",
+        help="Directory of dynamic, flightmare or airsim or none"
+    )
     args = parser.parse_args()
 
-    DYNAMICS = "flightmare"
+    """
+    # TODO: MPC model couldn't use airsim as dynamic now.
+    """
+
+
+    DYNAMICS = args.dynamic
 
     # CONTROLLER - define and load controller
     model_path = os.path.join("trained_models", "quad", args.model)
     # MPC
     if model_path.split(os.sep)[-1] == "mpc":
+        assert DYNAMICS != 'airsim', 'Airsim is not avalibale for mpc model now'
         # mpc parameters:
         params = {"horizon": 10, "dt": .1}
         controller = MPC(dynamics=DYNAMICS, **params)
@@ -402,15 +417,14 @@ if __name__ == "__main__":
         print("MODIFIED: ", modified_params)
 
     # DEFINE ENVIRONMENT
-    if args.flightmare:
+    if args.dynamic == "flightmare":
         environment = FlightmareWrapper(params["dt"], args.unity)
-    else:
+    elif args.dynamic == "none":
         # DYNAMICS
-        dynamics = (
-            FlightmareDynamics(modified_params=modified_params)
-            if DYNAMICS == "flightmare" else SimpleDynamics()
-        )
+        dynamics = FlightmareDynamics(modified_params=modified_params)
         environment = QuadRotorEnvBase(dynamics, params["dt"])
+    elif args.dynamic == "airsim":
+        environment = AirsimWrapper(params["dt"])
 
     # EVALUATOR
     evaluator = QuadEvaluator(controller, environment, test_time=1, **params)
